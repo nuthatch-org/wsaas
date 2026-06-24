@@ -2,38 +2,28 @@
 name    = "ws-gateway"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "Horizon TAP v2 (GraphTally) WebSocket data service. Custom WS relay + per-endpoint pricing on horizon-core."
 
 [[bin]]
 name = "ws-gateway"
 path = "src/main.rs"
 
 [dependencies]
-# Web
-axum           = { version = "0.8", features = ["macros", "ws"] }
+horizon-core = { git = "https://github.com/lodestar-team/horizon-core", branch = "main" }
+
+# WebSocket relay (the service-specific part horizon-core's HTTP proxy can't cover)
+axum              = { version = "0.8", features = ["macros", "ws"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
-futures-util   = "0.3"
-tower-http     = { version = "0.6", features = ["trace"] }
-reqwest        = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-tower_governor = { version = "0.8", features = ["axum"] }
-
-# Database
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "tls-rustls", "migrate"] }
-
-# EVM / crypto
-alloy           = { version = "0.5", features = ["full"] }
-alloy-primitives = "0.8"
-alloy-sol-types  = "0.8"
-k256  = { version = "0.13", features = ["ecdsa"] }
-hex   = "0.4"
+futures-util      = "0.3"
 
 # Config / serialization
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml       = "0.8"
+serde = { version = "1", features = ["derive"] }
+toml  = "0.8"
 
 # Runtime / utils
-tokio             = { version = "1", features = ["full"] }
-anyhow            = "1"
-tracing           = "0.1"
+tokio              = { version = "1", features = ["full"] }
+anyhow             = "1"
+tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-dotenvy           = "0.15"
+dotenvy            = "0.15"

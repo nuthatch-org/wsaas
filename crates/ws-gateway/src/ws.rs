@@ -1,17 +1,18 @@
 //! WebSocket data-service handler.
 //!
 //! A consumer connects to `/ws/{chain}/{topic}?receipt=<TAP-Receipt JSON>`.
-//! The TAP v2 receipt is validated (EIP-712 signature, staleness, authorised
-//! sender) and persisted *before* the upgrade — no receipt, no stream. We then
-//! open the upstream Pinax WebSocket (`wss://ws.pinax.network/ws/{chain}@{topic}
-//! ?token=…`) and relay every pre-parsed transfer/swap/event message to the
-//! client. Each connection settles as a QueryFee RAV via the shared collector,
-//! exactly like the REST/gRPC siblings — only the transport differs.
+//! The TAP v2 receipt is validated + priced + persisted by horizon-core's
+//! [`gate_request`](horizon_core::proxy::gate_request) *before* the upgrade — no
+//! receipt, no stream. We then open the upstream Pinax WebSocket and relay every
+//! message to the client. Settlement (RAV aggregation + on-chain collect) is the
+//! shared horizon-core background machinery; only the transport differs.
+
+use std::sync::Arc;
 
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Extension, Path, Query, State,
     },
     http::StatusCode,
     response::Response,
@@ -22,7 +23,31 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as TMsg;
 use tracing::{info, warn};
 
-use crate::{db, tap, AppState};
+use horizon_core::AppState;
+
+/// Upstream Pinax WebSocket coordinates — wsaas-specific config, carried as an
+/// Axum `Extension` since it isn't part of horizon-core's `Config`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WsUpstream {
+    /// Base wss:// URL, e.g. "wss://ws.pinax.network".
+    pub pinax_ws_base: String,
+    /// Pinax API token, sent as the `?token=` query param on the upstream URL.
+    pub pinax_token: String,
+}
+
+impl WsUpstream {
+    /// Load the Pinax fields from the `[backend]` table of `$GATEWAY_CONFIG`
+    /// (defaults to `config.toml`). horizon-core ignores these fields; we ignore its.
+    pub fn load() -> anyhow::Result<Self> {
+        #[derive(Deserialize)]
+        struct File {
+            backend: WsUpstream,
+        }
+        let path = std::env::var("GATEWAY_CONFIG").unwrap_or_else(|_| "config.toml".to_string());
+        let contents = std::fs::read_to_string(&path)?;
+        Ok(toml::from_str::<File>(&contents)?.backend)
+    }
+}
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -30,56 +55,27 @@ pub struct WsQuery {
     pub receipt: String,
 }
 
-fn now_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64
-}
-
-fn is_duplicate_nonce(e: &anyhow::Error) -> bool {
-    e.downcast_ref::<sqlx::Error>()
-        .map(|db| matches!(db, sqlx::Error::Database(d) if d.is_unique_violation()))
-        .unwrap_or(false)
-}
-
 pub async fn handler(
     State(state): State<AppState>,
+    Extension(upstream): Extension<Arc<WsUpstream>>,
     Path((chain, topic)): Path<(String, String)>,
     Query(q): Query<WsQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, (StatusCode, String)> {
-    // ── 1. Validate the TAP receipt before upgrading ──────────────────────────
-    let validated = tap::validate_receipt(
-        &q.receipt,
-        state.domain_sep,
-        &state.config.tap.authorized_senders,
-        state.config.tap.data_service_address,
-        state.config.indexer.service_provider_address,
-        state.config.tap.max_receipt_age_ns,
-        now_ns(),
-    )
-    .map_err(|e| (StatusCode::PAYMENT_REQUIRED, e.to_string()))?;
+    // Validate + price + persist the receipt before upgrading. The pricing policy
+    // (see main.rs) sets the minimum receipt value for this path.
+    let path = format!("/ws/{chain}/{topic}");
+    let _validated = horizon_core::proxy::gate_request(&state, &q.receipt, &path).await?;
 
-    // ── 2. Persist (reject replayed nonces) ───────────────────────────────────
-    match db::insert_receipt(&state.pool, &validated).await {
-        Ok(()) => {}
-        Err(e) if is_duplicate_nonce(&e) => {
-            return Err((StatusCode::PAYMENT_REQUIRED, "receipt nonce already used".into()));
-        }
-        Err(e) => return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    }
-
-    // ── 3. Build the upstream Pinax URL and upgrade ───────────────────────────
-    let upstream = format!(
+    let url = format!(
         "{}/ws/{}@{}?token={}",
-        state.config.backend.pinax_ws_base.trim_end_matches('/'),
+        upstream.pinax_ws_base.trim_end_matches('/'),
         chain,
         topic,
-        state.config.backend.pinax_token,
+        upstream.pinax_token,
     );
     info!(%chain, %topic, "ws session authorised; opening upstream");
-    Ok(ws.on_upgrade(move |socket| relay(socket, upstream)))
+    Ok(ws.on_upgrade(move |socket| relay(socket, url)))
 }
 
 /// Pipe the upstream Pinax stream to the consumer until either side closes.

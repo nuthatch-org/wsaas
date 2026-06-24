@@ -26,7 +26,12 @@ aggregator_url = "http://localhost:8080"
 aggregation_interval_secs = 60
 
 [backend]
+# horizon-core requires an HTTP upstream for the catch-all proxy mounted alongside
+# the /ws route. A WebSocket-only deployment can point it at the Pinax REST base (or
+# any health URL); non-/ws paths are not the service's primary surface.
+upstream_url = "https://pinax.network"
 # Upstream Pinax WebSocket. The token is the Pinax JWT (NOT the firehose x-api-key).
+# These are wsaas-specific (loaded by ws::WsUpstream); horizon-core ignores them.
 pinax_ws_base = "wss://ws.pinax.network"
 pinax_token = "<your-pinax-jwt>"
 
