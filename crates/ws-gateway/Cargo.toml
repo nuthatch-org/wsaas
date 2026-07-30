@@ -10,7 +10,7 @@ name = "ws-gateway"
 path = "src/main.rs"
 
 [dependencies]
-horizon-core = { git = "https://github.com/lodestar-team/horizon-core", branch = "main" }
+horizon-core = { git = "https://github.com/nightswatchhq/horizon-core", branch = "main" }
 
 # WebSocket relay (the service-specific part horizon-core's HTTP proxy can't cover)
 axum              = { version = "0.8", features = ["macros", "ws"] }
