@@ -23,14 +23,31 @@ import {WebSocketDataService} from "../src/WebSocketDataService.sol";
 ///   OWNER                 — governance address (owner of the proxy)
 ///   PAUSE_GUARDIAN        — address authorised to pause the service
 ///
-/// Horizon addresses — Arbitrum Sepolia (421614):
+/// Horizon addresses — Arbitrum Sepolia (421614). **Corrected 2026-08-30: all three of the
+/// non-Controller entries here were wrong, and two of them wrong in the silent way.**
+///
 ///   Controller:           0x9DB3ee191681f092607035d9BDA6e59FbEaCa695
-///   HorizonStaking:       0xFf2Ee30de92F276018642A59Fb7Be95b3F9088Af
-///   GraphTallyCollector:  0xacC71844EF6beEF70106ABe6E51013189A1f3738
-///   PaymentsEscrow:       0x09B985a2042848A08bA59060EaF0f07c6F5D4d54
+///   HorizonStaking:       0x865365C425f3A593Ffe698D9c4E6707D14d51e08
+///   GraphTallyCollector:  0x382863e7B662027117449bd2c49285582bbBd21B
+///   PaymentsEscrow:       0x4b5D3Da463F7E076bb7CDF5030960bf123245681
+///
+/// What was here before, and why it matters:
+///   HorizonStaking  0xFf2Ee30d… is an implementation, not the proxy. 21 kB of code and an empty
+///                   EIP-1967 slot. Calling an implementation does not revert, so a service wired
+///                   to one reads uninitialised storage and nothing anywhere says why.
+///   PaymentsEscrow  0x09B985a2… likewise: 6.8 kB, no proxy slot.
+///   Collector       0xacC71844… is the **legacy TAPCollector**. Its own eip712Domain() reports the
+///                   name "TAPCollector", so receipts signed under a "GraphTallyCollector" domain
+///                   would be rejected at redemption while verifying perfectly locally.
+///
+/// These are constructor arguments and therefore **immutable**: a contract deployed with the old
+/// values cannot be corrected by an upgrade. Verify before broadcasting:
+///
+///   cast storage <addr> 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+///   cast call <collector> "eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])"
 ///
 /// Horizon addresses — Arbitrum One (42161, mainnet — NOT for use yet):
-///   Controller:           see cast call 0xb2Bb92d0DE618878E438b55D5846cfecD9301105 "controller()(address)"
+///   Controller:           0x0a8491544221dd212964fbb96487467291b2C97e
 ///   HorizonStaking:       0x00669A4CF01450B64E8A2A20E9b1FCB71E61eF03
 ///   GraphTallyCollector:  0x8f69F5C07477Ac46FBc491B1E6D91E2bb0111A9e
 ///   PaymentsEscrow:       0xf6Fcc27aAf1fcD8B254498c9794451d82afC673E
@@ -47,7 +64,7 @@ contract Deploy is Script {
         );
         address graphTallyCollector = vm.envOr(
             "GRAPH_TALLY_COLLECTOR",
-            address(0xacC71844EF6beEF70106ABe6E51013189A1f3738)
+            address(0x382863e7B662027117449bd2c49285582bbBd21B)
         );
 
         vm.startBroadcast();

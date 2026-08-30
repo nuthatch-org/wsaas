@@ -14,10 +14,19 @@ data_service_address = "0x..."
 # Gateway / signer addresses authorised to issue TAP receipts.
 # Leave empty to accept receipts from any signer.
 authorized_senders = ["0x..."]
-# EIP-712 domain — must match the deployed GraphTallyCollector.
+# EIP-712 domain. All three fields must match what the collector itself reports, because the domain
+# separator is keccak(name, version, chainId, verifyingContract) and a signature computed over a
+# different one is rejected by the contract while verifying perfectly on your own side. Check it:
+#
+#   cast call <verifying_contract> "eip712Domain()(bytes1,string,string,uint256,address,bytes32,uint256[])" --rpc-url <rpc>
+#
+# Corrected 2026-08-30: this named "GraphTallyCollector" while pointing at
+# 0xacC71844EF6beEF70106ABe6E51013189A1f3738, which is the **legacy TAPCollector** and reports its
+# own name as "TAPCollector". Every receipt signed with that pairing would have failed at
+# redemption, quietly, having verified locally.
 eip712_domain_name        = "GraphTallyCollector"
 eip712_chain_id           = 421614              # Arbitrum Sepolia
-eip712_verifying_contract = "0xacC71844EF6beEF70106ABe6E51013189A1f3738"
+eip712_verifying_contract = "0x382863e7B662027117449bd2c49285582bbBd21B"
 # Maximum age of a receipt before it is rejected (nanoseconds).
 max_receipt_age_ns = 30_000_000_000             # 30 seconds
 # TAP aggregator URL (POST /rav/aggregate).
